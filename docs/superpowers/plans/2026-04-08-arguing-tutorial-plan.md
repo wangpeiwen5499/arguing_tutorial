@@ -395,6 +395,56 @@ git commit -m "feat(server): add scene list and detail API"
 
 ---
 
+## Task 3.5: 自定义场景创建 API
+
+**Files:**
+- Create: `arguing-tutorial-server/src/main/java/com/arguing/service/prompt/CustomScenePromptBuilder.java`
+- Modify: `arguing-tutorial-server/src/main/java/com/arguing/controller/SceneController.java`
+- Modify: `arguing-tutorial-server/src/main/java/com/arguing/service/SceneService.java`
+
+- [ ] **Step 1: 编写 CustomScenePromptBuilder**
+
+构建自定义场景生成 Prompt：用户传入 `name` + `description` + `opponent_description`，由 LLM 生成：
+```json
+{
+  "personality": "强硬但讲道理，善于用数据反驳...",
+  "opening_line": "你就是那个后端开发？我听说你们接口写得一塌糊涂",
+  "difficulty": 3
+}
+```
+
+- [ ] **Step 2: 在 SceneService 添加 createCustomScene 方法**
+
+1. 调用 LLM 生成 personality、opening_line、difficulty
+2. 根据 `opponent_description` 关键词匹配预制模型标签选择 avatar_config
+3. 使用默认 evaluation_criteria 权重
+4. 保存并返回 Scene
+
+- [ ] **Step 3: 在 SceneController 添加自定义场景端点**
+
+```
+POST /api/scenes/custom
+Body: { "name": "...", "description": "...", "opponentDescription": "..." }
+```
+
+- [ ] **Step 4: 编写测试**
+
+测试关键词匹配逻辑（"强势"→boss_01, "年轻"→pm_01 等）。Mock LLM 调用。
+
+- [ ] **Step 5: Run tests**
+
+Run: `mvn test -Dtest=SceneServiceTest`
+Expected: 通过。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add .
+git commit -m "feat(server): add custom scene creation with LLM generation"
+```
+
+---
+
 ## Task 4: 游客认证与会话管理
 
 **Files:**
@@ -404,6 +454,8 @@ git commit -m "feat(server): add scene list and detail API"
 - Create: `arguing-tutorial-server/src/main/java/com/arguing/common/RateLimitService.java`
 - Create: `arguing-tutorial-server/src/main/java/com/arguing/config/RedisConfig.java`
 - Modify: `arguing-tutorial-server/pom.xml` (添加 Redis 依赖)
+
+> **依赖：** Task 1 (项目骨架) + Task 2 (User 实体)
 
 - [ ] **Step 1: 添加 Redis 依赖到 pom.xml**
 
@@ -438,11 +490,25 @@ POST /api/auth/wx-login    → 微信登录（code 换 token）
 
 - [ ] **Step 6: 编写测试**
 
-测试游客创建、频率限制、游客转注册的 happy path。
+- Create: `arguing-tutorial-server/src/test/java/com/arguing/service/AuthServiceTest.java`
+
+```java
+// testEnsureGuest_newToken_createsUser()
+// testEnsureGuest_existingToken_returnsExistingUser()
+// testUpgradeGuest_migratesSessions()
+```
+
+- Create: `arguing-tutorial-server/src/test/java/com/arguing/service/RateLimitServiceTest.java`
+
+```java
+// testGuestRateLimit_underLimit_allows()
+// testGuestRateLimit_overLimit_rejects()
+// testGuestRateLimit_resetsNextDay()
+```
 
 - [ ] **Step 7: Run tests**
 
-Run: `mvn test`
+Run: `mvn test -Dtest=AuthServiceTest,RateLimitServiceTest`
 Expected: 通过。
 
 - [ ] **Step 8: Commit**
@@ -497,7 +563,7 @@ POST /api/sessions/{id}/end     → 结束对练
 
 - [ ] **Step 3: 编写 DTO**
 
-ChatRequest: `MultipartFile audio`, `Long sessionId`
+ChatRequest: `MultipartFile audio`（sessionId 来自 URL 路径参数）
 ChatResponse: `String text`, `String audioUrl`, `String emotion`, `Object expression`, `Integer currentRound`, `Integer totalRounds`
 
 - [ ] **Step 4: 编写 SessionService 测试**
@@ -596,7 +662,23 @@ public class ContentSafetyService {
 
 - [ ] **Step 8: 编写集成测试**
 
-测试完整对练流程（使用 mock 的 ASR/TTS，真实 LLM 调用可选用）。
+- Create: `arguing-tutorial-server/src/test/java/com/arguing/service/SpeechServiceTest.java`
+
+```java
+// testRecognize_returnsText (mock ASR)
+// testSynthesize_returnsAudioUrl (mock TTS)
+// testRecognize_emptyAudio_throwsException()
+```
+
+- Create: `arguing-tutorial-server/src/test/java/com/arguing/service/SessionServiceIntegrationTest.java`
+
+```java
+// testFullChatFlow_mockedServices() — 完整对练流程，mock ASR/TTS/LLM
+// testChatFlow_llmTimeout_retries() — LLM 超时重试
+// testChatFlow_ttsFails_degradesToText() — TTS 失败降级
+```
+
+测试完整对练流程（使用 mock 的 ASR/TTS，LLM 调用 mock）。
 
 - [ ] **Step 9: Commit**
 
@@ -676,6 +758,8 @@ git commit -m "feat(server): add analysis service with scoring and report genera
 - Create: `arguing-tutorial-server/src/main/java/com/arguing/service/ShareService.java`
 - Create: `arguing-tutorial-server/src/main/java/com/arguing/controller/UserController.java`
 - Create: `arguing-tutorial-server/src/main/java/com/arguing/dto/ShareCardResponse.java`
+- Create: `arguing-tutorial-server/src/test/java/com/arguing/service/ShareServiceTest.java`
+- Create: `arguing-tutorial-server/src/test/java/com/arguing/controller/UserControllerTest.java`
 
 - [ ] **Step 1: 编写 ShareService**
 
@@ -690,12 +774,24 @@ git commit -m "feat(server): add analysis service with scoring and report genera
 ```
 GET /api/user/profile    → 用户信息
 GET /api/user/history    → 对练历史（分页）
-GET /api/user/stats      → 统计数据（总场次、平均分、趋势）
+GET /api/user/stats      → 统计数据：{ totalSessions, avgScore, bestScore, recentScores: [78, 85, 72, 90] }
 ```
+
+`recentScores` 返回最近 10 次分数数组，用于前端绘制趋势折线图。
 
 - [ ] **Step 3: 编写 ShareCardResponse DTO**
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 编写测试**
+
+- `ShareServiceTest.java`：测试卡片渲染（使用测试数据生成图片，验证尺寸和格式正确）
+- `UserControllerTest.java`：Mock AuthService，测试 profile/history/stats 接口返回
+
+- [ ] **Step 5: Run tests**
+
+Run: `mvn test -Dtest=ShareServiceTest,UserControllerTest`
+Expected: 通过。
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add .
@@ -860,6 +956,12 @@ onRecordingStop(audioFile):
 - 顶部进度条 + 场景名称
 - 中间区域预留给数字人组件（Task 12）
 - 底部麦克风按钮 + 提示按钮 + 结束按钮
+
+- [ ] **Step 5.5: 处理录音权限**
+
+进入对练页时调用 `uni.authorize({ scope: 'scope.record' })`。
+若用户拒绝：显示弹窗解释需要麦克风权限，提供"打开设置"按钮跳转系统设置页。
+设置页返回后重新检查权限状态。
 
 - [ ] **Step 6: 验证完整对练流程**
 
@@ -1041,11 +1143,13 @@ git push origin master
 ## 依赖关系
 
 ```
-Task 1 (DB) → Task 2 (Entity) → Task 3 (Scene API) → Task 5 (Session) → Task 6 (AI)
-                                                            ↓
-                                                      Task 7 (Analysis)
-                                                            ↓
-                                                      Task 8 (Share/User)
+Task 1 (DB) → Task 2 (Entity) → Task 3 (Scene API) → Task 3.5 (Custom Scene) → Task 5 (Session) → Task 6 (AI)
+                                                                               ↓
+                                                                         Task 7 (Analysis)
+                                                                               ↓
+                                                                         Task 8 (Share/User)
+
+Task 4 (Auth) 依赖 Task 1+2，然后可与 Task 3 并行
 
 Task 9 (Client init) → Task 10 (Home) → Task 11 (Practice) → Task 12 (Avatar)
                                                                 ↓
@@ -1053,7 +1157,6 @@ Task 9 (Client init) → Task 10 (Home) → Task 11 (Practice) → Task 12 (Avat
                                                                 ↓
                                                           Task 14 (Profile)
 
-Task 4 (Auth) 独立，可与其他 Task 并行
 Task 15 (集成) 依赖所有前置 Task
 ```
 
