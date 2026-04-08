@@ -7,5 +7,5 @@ import java.util.List;
 
 public interface RoundRepository extends JpaRepository<Round, Long> {
 
-    List<Round> findBySessionIdOrderByRoundNumber(Long sessionId);
+    List<Round> findBySessionIdOrderByRoundNumberAsc(Long sessionId);
 }

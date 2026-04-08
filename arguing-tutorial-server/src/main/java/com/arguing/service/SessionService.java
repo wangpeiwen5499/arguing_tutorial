@@ -8,6 +8,10 @@ import com.arguing.exception.ApiException;
 import com.arguing.repository.RoundRepository;
 import com.arguing.repository.SceneRepository;
 import com.arguing.repository.SessionRepository;
+import com.arguing.service.prompt.HintPromptBuilder;
+import com.arguing.service.prompt.RolePlayPromptBuilder;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -21,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -31,40 +36,37 @@ public class SessionService {
     /** 每次会话最多可使用的提示次数 */
     private static final int MAX_HINT_COUNT = 3;
 
-    /** Mock AI 回复列表 */
-    private static final List<String> MOCK_AI_REPLIES = List.of(
-            "你说得有道理，但是你有没有考虑过另一种情况？",
-            "我理解你的观点，不过从实际数据来看，情况并非如此。",
-            "这确实是个有趣的论点，但逻辑上还存在漏洞。",
-            "假设你是对的，那怎么解释反面的证据呢？",
-            "我们可以换个角度来看这个问题。",
-            "你的论证缺乏有力的事实支撑。",
-            "即使如此，这也不能推导出你的结论。",
-            "不妨举一个具体的例子来说明你的观点。",
-            "这个论据的说服力还不够强，试着用数据支撑。",
-            "好的，我部分同意你的说法，但还有保留意见。"
-    );
-
-    /** Mock 提示列表 */
-    private static final List<String> MOCK_HINTS = List.of(
-            "数据举证：用具体数字支撑你的论点",
-            "逻辑推理：尝试从对方的前提推导出矛盾",
-            "类比论证：用一个恰当的类比来增强说服力"
-    );
-
     /** 音频临时存储路径 */
     private static final String AUDIO_TMP_DIR = System.getProperty("java.io.tmpdir") + "/arguing-tutorial/audio";
 
     private final SessionRepository sessionRepository;
     private final RoundRepository roundRepository;
     private final SceneRepository sceneRepository;
+    private final AiService aiService;
+    private final SpeechService speechService;
+    private final ContentSafetyService contentSafetyService;
+    private final RolePlayPromptBuilder rolePlayPromptBuilder;
+    private final HintPromptBuilder hintPromptBuilder;
+    private final ObjectMapper objectMapper;
 
     public SessionService(SessionRepository sessionRepository,
                           RoundRepository roundRepository,
-                          SceneRepository sceneRepository) {
+                          SceneRepository sceneRepository,
+                          AiService aiService,
+                          SpeechService speechService,
+                          ContentSafetyService contentSafetyService,
+                          RolePlayPromptBuilder rolePlayPromptBuilder,
+                          HintPromptBuilder hintPromptBuilder,
+                          ObjectMapper objectMapper) {
         this.sessionRepository = sessionRepository;
         this.roundRepository = roundRepository;
         this.sceneRepository = sceneRepository;
+        this.aiService = aiService;
+        this.speechService = speechService;
+        this.contentSafetyService = contentSafetyService;
+        this.rolePlayPromptBuilder = rolePlayPromptBuilder;
+        this.hintPromptBuilder = hintPromptBuilder;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -110,9 +112,9 @@ public class SessionService {
         // 4. 返回 ChatResponse
         ChatResponse response = new ChatResponse();
         response.setText(openingLine);
-        response.setAudioUrl(null); // mock 阶段为空，后续 Task 6 接入
+        response.setAudioUrl(null);
         response.setEmotion("neutral");
-        response.setExpression(null); // mock 阶段为空
+        response.setExpression(null);
         response.setCurrentRound(0);
         response.setTotalRounds(session.getTotalRounds());
         return response;
@@ -123,12 +125,14 @@ public class SessionService {
      * 1. 校验 Session 存在且 ACTIVE
      * 2. 校验 currentRound < totalRounds
      * 3. 保存音频文件到临时路径
-     * 4. Mock ASR 返回固定文字
-     * 5. 创建 Round 记录
-     * 6. Mock AI 回复
-     * 7. currentRound++
-     * 8. 若达到总轮次，自动结束
-     * 9. 返回 ChatResponse
+     * 4. ASR 语音转文字
+     * 5. 敏感词过滤
+     * 6. 构建角色扮演 Prompt
+     * 7. 调用 AI 获取回复
+     * 8. 解析 AI 回复 JSON（reply + emotion）
+     * 9. 审核 AI 输出安全性
+     * 10. TTS 生成语音
+     * 11. 保存 Round，返回 ChatResponse
      */
     @Transactional
     public ChatResponse chat(Long userId, Long sessionId, MultipartFile audioFile) {
@@ -146,11 +150,69 @@ public class SessionService {
             audioUrl = saveAudioFile(sessionId, session.getCurrentRound() + 1, audioFile);
         }
 
-        // 4. Mock ASR
-        String userText = "[mock] 用户发言内容";
+        // 4. ASR 语音转文字
+        String userText = speechService.recognize(audioFile);
+        if (userText == null || userText.isEmpty()) {
+            userText = "（语音输入）";
+        }
 
-        // 5. 创建用户轮次 Round 记录
+        // 5. 敏感词过滤
+        userText = contentSafetyService.filter(userText);
+
+        // 获取场景信息用于构建 Prompt
+        Scene scene = sceneRepository.findById(session.getSceneId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "场景不存在"));
+        String personality = scene.getPersonality() != null ? scene.getPersonality() : "普通";
+
+        // 获取历史轮次
+        List<Round> historyRounds = roundRepository.findBySessionIdOrderByRoundNumberAsc(session.getId());
+
         int userRoundNumber = session.getCurrentRound() + 1;
+
+        // 6. 构建角色扮演 Prompt
+        List<Map<String, String>> messages = rolePlayPromptBuilder.build(
+                personality,
+                session.getTotalRounds(),
+                userRoundNumber,
+                historyRounds,
+                userText
+        );
+
+        // 7. 调用 AI 获取回复
+        String aiRawResponse = aiService.chat(messages);
+
+        // 8. 解析 AI 回复 JSON（reply + emotion）
+        String aiText;
+        String aiEmotion = "neutral";
+        try {
+            JsonNode jsonNode = objectMapper.readTree(aiRawResponse);
+            if (jsonNode.has("reply")) {
+                aiText = jsonNode.get("reply").asText();
+            } else {
+                aiText = aiRawResponse;
+            }
+            if (jsonNode.has("emotion")) {
+                String parsedEmotion = jsonNode.get("emotion").asText();
+                if (isValidEmotion(parsedEmotion)) {
+                    aiEmotion = parsedEmotion;
+                }
+            }
+        } catch (Exception e) {
+            // JSON 解析失败，直接使用原始回复
+            log.debug("AI 回复非 JSON 格式，直接使用原文");
+            aiText = aiRawResponse;
+        }
+
+        // 9. 审核 AI 输出安全性
+        if (!contentSafetyService.audit(aiText)) {
+            aiText = "（内容已被系统过滤）";
+            aiEmotion = "neutral";
+        }
+
+        // 10. TTS 生成语音
+        String aiAudioUrl = speechService.synthesize(aiText);
+
+        // 保存用户轮次 Round 记录
         Round userRound = new Round();
         userRound.setSessionId(session.getId());
         userRound.setRoundNumber(userRoundNumber);
@@ -159,22 +221,20 @@ public class SessionService {
         userRound.setCreatedAt(LocalDateTime.now());
         roundRepository.save(userRound);
 
-        // 6. Mock AI 回复
-        String aiText = MOCK_AI_REPLIES.get(userRoundNumber % MOCK_AI_REPLIES.size());
-        String aiEmotion = "neutral";
-
+        // 保存 AI 轮次 Round 记录
         Round aiRound = new Round();
         aiRound.setSessionId(session.getId());
         aiRound.setRoundNumber(userRoundNumber);
         aiRound.setAiText(aiText);
         aiRound.setAiEmotion(aiEmotion);
+        aiRound.setAiAudioUrl(aiAudioUrl);
         aiRound.setCreatedAt(LocalDateTime.now());
         roundRepository.save(aiRound);
 
-        // 7. currentRound++
+        // currentRound++
         session.setCurrentRound(userRoundNumber);
 
-        // 8. 若达到总轮次，自动结束
+        // 若达到总轮次，自动结束
         if (session.getCurrentRound() >= session.getTotalRounds()) {
             session.setStatus(Session.SessionStatus.COMPLETED);
             session.setFinishedAt(LocalDateTime.now());
@@ -184,12 +244,12 @@ public class SessionService {
 
         log.info("会话 {} 第 {} 轮对练完成", sessionId, userRoundNumber);
 
-        // 9. 返回 ChatResponse
+        // 返回 ChatResponse
         ChatResponse response = new ChatResponse();
         response.setText(aiText);
-        response.setAudioUrl(null); // mock 阶段为空
+        response.setAudioUrl(aiAudioUrl);
         response.setEmotion(aiEmotion);
-        response.setExpression(null); // mock 阶段为空
+        response.setExpression(null);
         response.setCurrentRound(session.getCurrentRound());
         response.setTotalRounds(session.getTotalRounds());
         return response;
@@ -199,8 +259,10 @@ public class SessionService {
      * 请求策略提示。
      * 1. 校验 Session 存在且 ACTIVE
      * 2. 校验 hintUsedCount < 3
-     * 3. hintUsedCount++
-     * 4. 返回 mock 提示文字
+     * 3. 构建策略提示 Prompt
+     * 4. 调用 AI 获取策略建议
+     * 5. hintUsedCount++
+     * 6. 返回策略提示文字
      */
     @Transactional
     public String requestHint(Long userId, Long sessionId) {
@@ -211,11 +273,18 @@ public class SessionService {
                     "提示次数已用完（最多 " + MAX_HINT_COUNT + " 次）");
         }
 
+        // 获取场景信息和历史轮次
+        Scene scene = sceneRepository.findById(session.getSceneId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "场景不存在"));
+        List<Round> historyRounds = roundRepository.findBySessionIdOrderByRoundNumberAsc(session.getId());
+
+        // 构建策略提示 Prompt 并调用 AI
+        List<Map<String, String>> messages = hintPromptBuilder.build(historyRounds, scene.getName());
+        String hint = aiService.chat(messages);
+
         session.setHintUsedCount(session.getHintUsedCount() + 1);
         sessionRepository.save(session);
 
-        // 返回 mock 提示
-        String hint = MOCK_HINTS.get(session.getHintUsedCount() - 1);
         log.info("会话 {} 请求提示（第 {} 次）", sessionId, session.getHintUsedCount());
         return hint;
     }
@@ -254,6 +323,15 @@ public class SessionService {
         }
 
         return session;
+    }
+
+    /**
+     * 校验情绪标签是否合法。
+     */
+    private boolean isValidEmotion(String emotion) {
+        if (emotion == null) return false;
+        return List.of("angry", "sarcastic", "hesitant", "compromising", "confident", "neutral")
+                .contains(emotion.toLowerCase());
     }
 
     /**
