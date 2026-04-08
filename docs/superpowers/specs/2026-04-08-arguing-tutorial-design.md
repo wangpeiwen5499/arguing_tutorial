@@ -185,7 +185,7 @@ GET    /api/user/stats          # 统计数据（总分/场次/趋势）
 
 ## 游客会话管理
 
-- **身份标识**：首次打开小程序时由后端生成临时 token，存储在小程序 Storage 中
+- **身份标识**：首次打开小程序时由后端生成 UUID 临时 token，存储在小程序 Storage 中。若 Storage 被清除则视为新游客
 - **会话持久化**：游客会话保存 7 天，过期自动清理
 - **功能限制**：游客可使用全部对练功能，但历史记录最多保留 3 条
 - **游客转注册**：注册时自动将游客会话迁移到正式账号，历史记录保留
@@ -219,9 +219,9 @@ GET    /api/user/stats          # 统计数据（总分/场次/趋势）
 | 策略运用 | 15% | 是否灵活运用谈判策略（共情、施压、妥协等） |
 | 表达清晰度 | 15% | 表达是否简洁清晰，有无冗余 |
 
-- **总分计算**：各维度得分 × 权重之和，再减去提示扣分
+- **总分计算**：各维度得分 × 权重之和，再减去提示扣分，最低 0 分
 - **维度评分**由大模型基于评分标准 Prompt 生成，每轮独立评分，最终取加权平均
-- **Scene.evaluation_criteria** 可覆盖默认权重（格式：`{"logic": 0.3, "emotion": 0.15, ...}`）
+- **Scene.evaluation_criteria** 可覆盖默认权重（格式：`{"logic": 0.3, "emotion": 0.15, ...}`，5 个维度权重之和必须为 1.0）
 
 ## 数字人技术方案
 
@@ -265,7 +265,7 @@ GET    /api/user/stats          # 统计数据（总分/场次/趋势）
 - `opponent_description`：对手描述（如"一个强势的前端老员工"）
 
 系统自动处理：
-- `avatar_config`：根据 opponent_description 选择最匹配的预制模型
+- `avatar_config`：根据 opponent_description 关键词匹配预制模型标签（如"强势"→模型A，"温和"→模型B）
 - `personality`：由 LLM 根据 description 生成对手性格设定
 - `opening_line`：由 LLM 生成开场白
 - `evaluation_criteria`：使用默认评分权重
