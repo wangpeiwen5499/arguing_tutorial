@@ -70,14 +70,30 @@ public class SessionService {
     }
 
     /**
+     * 开始会话的返回结果，包含 sessionId 和 ChatResponse。
+     */
+    public static class SessionStartResult {
+        private final Long sessionId;
+        private final ChatResponse response;
+
+        public SessionStartResult(Long sessionId, ChatResponse response) {
+            this.sessionId = sessionId;
+            this.response = response;
+        }
+
+        public Long getSessionId() { return sessionId; }
+        public ChatResponse getResponse() { return response; }
+    }
+
+    /**
      * 开始对练会话。
      * 1. 校验场景存在
      * 2. 创建 Session
      * 3. 创建 Round 0 作为 AI 开场白
-     * 4. 返回 ChatResponse 包含开场白
+     * 4. 返回 SessionStartResult 包含 sessionId 和开场白
      */
     @Transactional
-    public ChatResponse startSession(Long userId, Long sceneId) {
+    public SessionStartResult startSession(Long userId, Long sceneId) {
         // 1. 校验场景存在
         Scene scene = sceneRepository.findById(sceneId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "场景不存在"));
@@ -109,7 +125,7 @@ public class SessionService {
 
         log.info("用户 {} 开始会话 {}，场景 {}", userId, session.getId(), sceneId);
 
-        // 4. 返回 ChatResponse
+        // 4. 返回 SessionStartResult
         ChatResponse response = new ChatResponse();
         response.setText(openingLine);
         response.setAudioUrl(null);
@@ -117,7 +133,7 @@ public class SessionService {
         response.setExpression(null);
         response.setCurrentRound(0);
         response.setTotalRounds(session.getTotalRounds());
-        return response;
+        return new SessionStartResult(session.getId(), response);
     }
 
     /**

@@ -51,11 +51,14 @@ public class SessionController {
             throw new ApiException(HttpStatus.BAD_REQUEST, "sceneId 格式不正确");
         }
 
-        ChatResponse response = sessionService.startSession(userId, sceneId);
+        SessionService.SessionStartResult startResult = sessionService.startSession(userId, sceneId);
+
+        Map<String, Object> data = startResult.getResponse().toMap();
+        data.put("sessionId", startResult.getSessionId());
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("code", 200);
-        result.put("data", response.toMap());
+        result.put("data", data);
         return ResponseEntity.ok(result);
     }
 
