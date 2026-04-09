@@ -2,8 +2,10 @@ package com.arguing.controller;
 
 import com.arguing.common.GuestInterceptor;
 import com.arguing.dto.ReportView;
+import com.arguing.dto.ShareCardResponse;
 import com.arguing.exception.ApiException;
 import com.arguing.service.AnalysisService;
+import com.arguing.service.ShareService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,9 +27,11 @@ import java.util.Map;
 public class ReportController {
 
     private final AnalysisService analysisService;
+    private final ShareService shareService;
 
-    public ReportController(AnalysisService analysisService) {
+    public ReportController(AnalysisService analysisService, ShareService shareService) {
         this.analysisService = analysisService;
+        this.shareService = shareService;
     }
 
     /**
@@ -49,7 +53,7 @@ public class ReportController {
     }
 
     /**
-     * 获取分享卡片（暂返回 mock 数据）。
+     * 获取分享卡片。
      * GET /api/reports/{sessionId}/share-card
      */
     @GetMapping("/{sessionId}/share-card")
@@ -58,10 +62,13 @@ public class ReportController {
             HttpServletRequest request) {
         extractUserId(request);
 
-        // TODO: 后续实现真实的分享卡片生成
+        ShareCardResponse cardResponse = shareService.generateShareCard(sessionId);
+
         Map<String, Object> cardData = new LinkedHashMap<>();
-        cardData.put("shareCardUrl", "https://example.com/share-card/" + sessionId + ".png");
-        cardData.put("title", "我在辩了个论中获得了一份辩论成绩单，来看看我的表现吧！");
+        cardData.put("imageUrl", cardResponse.getImageUrl());
+        cardData.put("sceneName", cardResponse.getSceneName());
+        cardData.put("totalScore", cardResponse.getTotalScore());
+        cardData.put("title", "我在吵架修炼场中获得了一份对练成绩单，来看看我的表现吧！");
         cardData.put("description", "快来挑战你的辩论能力");
 
         Map<String, Object> result = new LinkedHashMap<>();
