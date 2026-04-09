@@ -25,3 +25,15 @@ export function getReportList(page = 1, size = 10) {
     data: { page, size }
   })
 }
+
+/**
+ * 获取分享卡片图片
+ * @param {number} sessionId - 会话 ID
+ * @returns {Promise<Object>} 分享卡片信息
+ */
+export function getShareCard(sessionId) {
+  return request({
+    url: `/api/reports/${sessionId}/share-card`,
+    method: 'GET'
+  })
+}
