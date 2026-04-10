@@ -160,14 +160,14 @@ public class SessionService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "对练已结束，不能再发送消息");
         }
 
-        // 3. 保存音频文件
+        // 3. ASR 语音转文字（必须在 transferTo 之前，否则临时文件被删除）
+        String userText = speechService.recognize(audioFile);
+
+        // 4. 保存音频文件
         String audioUrl = null;
         if (audioFile != null && !audioFile.isEmpty()) {
             audioUrl = saveAudioFile(sessionId, session.getCurrentRound() + 1, audioFile);
         }
-
-        // 4. ASR 语音转文字
-        String userText = speechService.recognize(audioFile);
         if (userText == null || userText.isEmpty()) {
             userText = "（语音输入）";
         }

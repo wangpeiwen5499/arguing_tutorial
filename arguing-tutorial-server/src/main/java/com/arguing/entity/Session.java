@@ -27,7 +27,7 @@ public class Session {
     @Column(name = "scene_id", nullable = false)
     private Long sceneId;
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 20, columnDefinition = "varchar(20)")
     @Enumerated(EnumType.STRING)
     private SessionStatus status = SessionStatus.ACTIVE;
 

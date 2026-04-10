@@ -1,0 +1,244 @@
+{
+	"info": {
+		"name": "程序员吵架修炼场 - 完整测试流程",
+		"description": "包含游客登录、创建会话、语音对练（ASR+TTS）、策略提示、结束会话的完整测试脚本",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "0. 获取游客 Token",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"var json = pm.response.json();",
+							"pm.test(\"返回 userId\", function () {",
+							"    pm.expect(json.userId).to.be.a('number');",
+							"});",
+							"",
+							"// 自动保存 guestToken 到环境变量",
+							"if (json.guestToken) {",
+							"    pm.environment.set(\"guestToken\", json.guestToken);",
+							"    pm.environment.set(\"userId\", json.userId);",
+							"    console.log(\"guestToken 已保存: \" + json.guestToken);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/auth/guest",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "auth", "guest"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "1. 创建对练会话",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"var json = pm.response.json();",
+							"pm.test(\"返回 sessionId\", function () {",
+							"    pm.expect(json.data.sessionId).to.be.a('number');",
+							"});",
+							"pm.test(\"包含 AI 开场白\", function () {",
+							"    pm.expect(json.data.text).to.be.a('string');",
+							"});",
+							"",
+							"// 自动保存 sessionId",
+							"pm.environment.set(\"sessionId\", json.data.sessionId);",
+							"console.log(\"sessionId 已保存: \" + json.data.sessionId);",
+							"console.log(\"AI 开场白: \" + json.data.text);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Guest-Token",
+						"value": "{{guestToken}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"sceneId\": 1\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/sessions",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "sessions"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "2. 语音对练（上传音频）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"var json = pm.response.json();",
+							"pm.test(\"返回 AI 回复\", function () {",
+							"    pm.expect(json.data.text).to.be.a('string');",
+							"});",
+							"pm.test(\"包含轮次信息\", function () {",
+							"    pm.expect(json.data.currentRound).to.be.a('number');",
+							"});",
+							"",
+							"console.log(\"AI 回复: \" + json.data.text);",
+							"console.log(\"情绪: \" + json.data.emotion);",
+							"console.log(\"轮次: \" + json.data.currentRound + \"/\" + json.data.totalRounds);",
+							"if (json.data.audioUrl) {",
+							"    console.log(\"TTS 音频路径: \" + json.data.audioUrl);",
+							"} else {",
+							"    console.log(\"TTS 音频: 未生成\");",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Guest-Token",
+						"value": "{{guestToken}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "audio",
+							"type": "file",
+							"src": ""
+						}
+					]
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/sessions/{{sessionId}}/chat",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "sessions", "{{sessionId}}", "chat"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "3. 请求策略提示",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"var json = pm.response.json();",
+							"pm.test(\"返回提示内容\", function () {",
+							"    pm.expect(json.data.hint).to.be.a('string');",
+							"});",
+							"",
+							"console.log(\"策略提示: \" + json.data.hint);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Guest-Token",
+						"value": "{{guestToken}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{baseUrl}}/api/sessions/{{sessionId}}/hint",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "sessions", "{{sessionId}}", "hint"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "4. 结束对练",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"var json = pm.response.json();",
+							"pm.test(\"返回 sessionId\", function () {",
+							"    pm.expect(json.data.sessionId).to.be.a('number');",
+							"});",
+							"",
+							"console.log(\"会话已结束, sessionId: \" + json.data.sessionId);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Guest-Token",
+						"value": "{{guestToken}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{baseUrl}}/api/sessions/{{sessionId}}/end",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "sessions", "{{sessionId}}", "end"]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		}
+	]
+}
