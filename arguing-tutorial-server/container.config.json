@@ -1,0 +1,7 @@
+{
+  "containerPort": 80,
+  "minNum": 0,
+  "maxNum": 5,
+  "cpu": 0.5,
+  "mem": 512
+}
