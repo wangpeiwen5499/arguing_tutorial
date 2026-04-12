@@ -21,9 +21,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,20 +36,21 @@ public class SpeechService {
     private static final Logger log = LoggerFactory.getLogger(SpeechService.class);
 
     private static final String NLS_GATEWAY = "https://nls-gateway-cn-shanghai.aliyuncs.com";
-    private static final String TTS_DIR = System.getProperty("java.io.tmpdir") + "/arguing-tutorial/tts";
 
     private final AliConfig aliConfig;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final OssService ossService;
 
     /** 缓存的 NLS Token */
     private String nlsToken;
     /** Token 过期时间（秒级时间戳） */
     private long tokenExpireTime;
 
-    public SpeechService(AliConfig aliConfig, ObjectMapper objectMapper) {
+    public SpeechService(AliConfig aliConfig, ObjectMapper objectMapper, OssService ossService) {
         this.aliConfig = aliConfig;
         this.objectMapper = objectMapper;
+        this.ossService = ossService;
         this.restTemplate = new RestTemplate();
     }
 
@@ -195,15 +193,13 @@ public class SpeechService {
                 return null;
             }
 
-            // 保存音频文件
-            Path dir = Paths.get(TTS_DIR);
-            Files.createDirectories(dir);
+            // 上传音频文件到 OSS
             String filename = "tts_" + System.currentTimeMillis() + ".wav";
-            Path filePath = dir.resolve(filename);
-            Files.write(filePath, response.getBody());
+            String ossKey = "tts/" + filename;
+            String ossUrl = ossService.upload(ossKey, response.getBody());
 
-            log.info("TTS 合成成功: {} ({} 字节)", filePath, response.getBody().length);
-            return filePath.toString();
+            log.info("TTS 合成成功: {} ({} 字节)", ossUrl, response.getBody().length);
+            return ossUrl;
         } catch (Exception e) {
             log.error("TTS 合成异常: {}", e.getMessage(), e);
             return null;

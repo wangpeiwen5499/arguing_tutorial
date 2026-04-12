@@ -38,16 +38,16 @@ public class AuthController {
     }
 
     /**
-     * 微信登录：使用 code 换取用户信息。
-     * 当前为 stub 实现。
+     * 微信登录（云托管模式）。
+     * 云托管自动注入 X-WX-OPENID 请求头，无需前端传 code。
      */
     @PostMapping("/wx-login")
-    public ResponseEntity<Map<String, Object>> wxLogin(@RequestBody Map<String, String> body) {
-        String code = body.get("code");
-        if (code == null || code.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "缺少 code 参数");
+    public ResponseEntity<Map<String, Object>> wxLogin(
+            @RequestHeader(value = "X-WX-OPENID", required = false) String openid) {
+        if (openid == null || openid.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "无法获取用户 OpenID");
         }
-        User user = authService.loginByWx(code);
+        User user = authService.loginByWx(openid);
         return ResponseEntity.ok(buildUserResponse(user));
     }
 

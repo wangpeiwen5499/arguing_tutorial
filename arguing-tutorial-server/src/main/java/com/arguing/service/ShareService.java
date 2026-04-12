@@ -22,10 +22,6 @@ import java.awt.GradientPaint;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * 分享卡片生成服务。
@@ -54,13 +50,16 @@ public class ShareService {
     private final ReportRepository reportRepository;
     private final SessionRepository sessionRepository;
     private final SceneRepository sceneRepository;
+    private final OssService ossService;
 
     public ShareService(ReportRepository reportRepository,
                         SessionRepository sessionRepository,
-                        SceneRepository sceneRepository) {
+                        SceneRepository sceneRepository,
+                        OssService ossService) {
         this.reportRepository = reportRepository;
         this.sessionRepository = sessionRepository;
         this.sceneRepository = sceneRepository;
+        this.ossService = ossService;
     }
 
     /**
@@ -182,24 +181,23 @@ public class ShareService {
                 g2d.drawString(scoreText, 580, y);
             }
 
-            // 保存图片到临时目录
-            Path tempDir = Path.of(System.getProperty("java.io.tmpdir"), "share-cards");
-            Files.createDirectories(tempDir);
-
+            // 上传图片到 OSS
             String fileName = "share_card_" + report.getSessionId() + "_" + System.currentTimeMillis() + ".jpg";
-            File outputFile = tempDir.resolve(fileName).toFile();
-            ImageIO.write(image, "jpg", outputFile);
 
-            // Mock URL（后续接入 CDN）
-            String imageUrl = "https://cdn.example.com/share-cards/" + fileName;
-            log.debug("分享卡片图片已保存: {}", outputFile.getAbsolutePath());
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            ImageIO.write(image, "jpg", baos);
+            byte[] imageBytes = baos.toByteArray();
+
+            String ossKey = "share-cards/" + fileName;
+            String imageUrl = ossService.upload(ossKey, imageBytes);
+
+            log.debug("分享卡片图片已上传: {}", imageUrl);
 
             return imageUrl;
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("生成分享卡片图片失败", e);
-            // 降级返回 mock URL
-            return "https://cdn.example.com/share-cards/mock_" + report.getSessionId() + ".jpg";
+            return null;
         } finally {
             g2d.dispose();
         }

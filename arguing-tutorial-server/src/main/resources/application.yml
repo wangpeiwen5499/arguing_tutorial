@@ -1,11 +1,11 @@
 server:
-  port: 8080
+  port: 80
 
 spring:
   application:
     name: arguing-tutorial-server
   datasource:
-    url: jdbc:mysql://localhost:3306/arguing_tutorial?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    url: jdbc:mysql://${DB_HOST:localhost}:3306/arguing_tutorial?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
     username: root
     password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -42,4 +42,19 @@ ali:
   access-key-id: ${ALI_ACCESS_KEY_ID:your-access-key-id}
   access-key-secret: ${ALI_ACCESS_KEY_SECRET:your-access-key-secret}
   app-key: ${ALI_APP_KEY:your-app-key}
+
+# 方案A：微信云托管内置存储（腾讯云 COS）
+storage:
+  cos:
+    secret-id: ${COS_SECRET_ID:}
+    secret-key: ${COS_SECRET_KEY:}
+    region: ${COS_REGION:ap-shanghai}
+    bucket: ${COS_BUCKET:7072-prod-3g0nnk2k58e9785d-1421024449}
+
+# 方案B：阿里云 OSS（暂未使用，后续可能切换）
+#ali:
+#  oss:
+#    endpoint: ${ALI_OSS_ENDPOINT:oss-cn-shanghai.aliyuncs.com}
+#    bucket: ${ALI_OSS_BUCKET:arguing-tutorial}
+#    url-prefix: ${ALI_OSS_URL_PREFIX:https://arguing-tutorial.oss-cn-shanghai.aliyuncs.com/}
 

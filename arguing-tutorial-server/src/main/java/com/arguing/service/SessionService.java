@@ -20,9 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -36,9 +33,6 @@ public class SessionService {
     /** 每次会话最多可使用的提示次数 */
     private static final int MAX_HINT_COUNT = 3;
 
-    /** 音频临时存储路径 */
-    private static final String AUDIO_TMP_DIR = System.getProperty("java.io.tmpdir") + "/arguing-tutorial/audio";
-
     private final SessionRepository sessionRepository;
     private final RoundRepository roundRepository;
     private final SceneRepository sceneRepository;
@@ -48,6 +42,7 @@ public class SessionService {
     private final RolePlayPromptBuilder rolePlayPromptBuilder;
     private final HintPromptBuilder hintPromptBuilder;
     private final ObjectMapper objectMapper;
+    private final OssService ossService;
 
     public SessionService(SessionRepository sessionRepository,
                           RoundRepository roundRepository,
@@ -57,7 +52,8 @@ public class SessionService {
                           ContentSafetyService contentSafetyService,
                           RolePlayPromptBuilder rolePlayPromptBuilder,
                           HintPromptBuilder hintPromptBuilder,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          OssService ossService) {
         this.sessionRepository = sessionRepository;
         this.roundRepository = roundRepository;
         this.sceneRepository = sceneRepository;
@@ -67,6 +63,7 @@ public class SessionService {
         this.rolePlayPromptBuilder = rolePlayPromptBuilder;
         this.hintPromptBuilder = hintPromptBuilder;
         this.objectMapper = objectMapper;
+        this.ossService = ossService;
     }
 
     /**
@@ -351,28 +348,23 @@ public class SessionService {
     }
 
     /**
-     * 保存音频文件到本地临时路径。
-     * 后续会替换为 OSS 存储。
+     * 保存音频文件到 OSS。
      */
     private String saveAudioFile(Long sessionId, int roundNumber, MultipartFile audioFile) {
         try {
-            Path dir = Paths.get(AUDIO_TMP_DIR, String.valueOf(sessionId));
-            Files.createDirectories(dir);
-
             String originalFilename = audioFile.getOriginalFilename();
             String extension = "";
             if (originalFilename != null && originalFilename.contains(".")) {
                 extension = originalFilename.substring(originalFilename.lastIndexOf("."));
             }
             String filename = "round_" + roundNumber + "_" + UUID.randomUUID().toString().substring(0, 8) + extension;
+            String ossKey = "audio/" + sessionId + "/" + filename;
 
-            Path filePath = dir.resolve(filename);
-            audioFile.transferTo(filePath.toFile());
-
-            log.debug("音频文件已保存: {}", filePath);
-            return filePath.toString();
+            String url = ossService.upload(ossKey, audioFile.getInputStream(), audioFile.getSize());
+            log.debug("音频文件已上传: {}", url);
+            return url;
         } catch (IOException e) {
-            log.warn("保存音频文件失败，sessionId={}, round={}", sessionId, roundNumber, e);
+            log.warn("上传音频文件失败，sessionId={}, round={}", sessionId, roundNumber, e);
             return null;
         }
     }

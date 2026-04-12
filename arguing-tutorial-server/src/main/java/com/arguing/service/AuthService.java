@@ -51,19 +51,14 @@ public class AuthService {
     }
 
     /**
-     * 微信登录：使用 code 换取 openid，创建或查找正式用户。
-     * 当前为 stub 实现，后续对接微信 API。
+     * 微信登录（云托管模式）：直接使用 OpenID 创建或查找正式用户。
      */
     @Transactional
-    public User loginByWx(String code) {
-        // TODO: 调用微信 API 换取 openid
-        // 当前 stub 实现：使用 code 作为 mock openid
-        String mockOpenid = "wx_mock_" + code;
-
-        return userRepository.findByWxOpenid(mockOpenid)
+    public User loginByWx(String openid) {
+        return userRepository.findByWxOpenid(openid)
                 .orElseGet(() -> {
                     User user = new User();
-                    user.setWxOpenid(mockOpenid);
+                    user.setWxOpenid(openid);
                     user.setIsGuest(false);
                     user.setNickname("微信用户");
                     user.setCreatedAt(LocalDateTime.now());
@@ -74,10 +69,10 @@ public class AuthService {
 
     /**
      * 游客转正式用户：将游客账号升级为微信注册用户。
-     * 迁移会话（当前 stub，后续实现会话迁移逻辑）。
+     * 云托管模式下直接传入 openid。
      */
     @Transactional
-    public User upgradeGuest(Long guestUserId, String wxCode) {
+    public User upgradeGuest(Long guestUserId, String openid) {
         User guest = userRepository.findById(guestUserId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "用户不存在"));
 
@@ -85,21 +80,16 @@ public class AuthService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "该用户已经是正式用户");
         }
 
-        // TODO: 调用微信 API 换取 openid
-        String mockOpenid = "wx_mock_" + wxCode;
-
         // 检查该 openid 是否已有正式用户
-        userRepository.findByWxOpenid(mockOpenid).ifPresent(existing -> {
+        userRepository.findByWxOpenid(openid).ifPresent(existing -> {
             throw new ApiException(HttpStatus.CONFLICT, "该微信已绑定其他账号");
         });
 
-        guest.setWxOpenid(mockOpenid);
+        guest.setWxOpenid(openid);
         guest.setIsGuest(false);
         guest.setGuestToken(null);
         guest.setNickname("微信用户");
         guest.setUpdatedAt(LocalDateTime.now());
-
-        // TODO: 迁移游客会话到正式账号
 
         log.info("游客用户 {} 已升级为正式用户", guestUserId);
         return userRepository.save(guest);

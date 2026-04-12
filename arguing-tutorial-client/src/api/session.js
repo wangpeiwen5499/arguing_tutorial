@@ -22,6 +22,36 @@ export function startSession(sceneId) {
 export function chat(sessionId, audioFilePath) {
   return new Promise((resolve, reject) => {
     const guestToken = uni.getStorageSync('guest_token')
+    // #ifdef MP-WEIXIN
+    wx.cloud.callContainer({
+      name: 'arguing-tutorial-server',
+      path: `/api/sessions/${sessionId}/chat`,
+      method: 'POST',
+      dataType: 'other',
+      data: {
+        audio: audioFilePath
+      },
+      header: {
+        'X-WX-OPENID': '{openid}',
+        'X-Guest-Token': guestToken || '',
+        'content-type': 'multipart/form-data'
+      },
+      success: (res) => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+            resolve(data)
+          } catch (e) {
+            reject(e)
+          }
+        } else {
+          reject(res)
+        }
+      },
+      fail: reject
+    })
+    // #endif
+    // #ifndef MP-WEIXIN
     const task = uni.uploadFile({
       url: 'http://localhost:8080' + `/api/sessions/${sessionId}/chat`,
       filePath: audioFilePath,
@@ -43,6 +73,7 @@ export function chat(sessionId, audioFilePath) {
       },
       fail: reject
     })
+    // #endif
   })
 }
 

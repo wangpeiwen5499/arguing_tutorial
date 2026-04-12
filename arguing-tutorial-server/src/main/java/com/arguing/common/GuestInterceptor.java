@@ -19,6 +19,8 @@ public class GuestInterceptor implements HandlerInterceptor {
         this.authService = authService;
     }
 
+    private static final String WX_OPENID_HEADER = "X-WX-OPENID";
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         // 放行 OPTIONS 预检请求
@@ -26,6 +28,15 @@ public class GuestInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        // 优先使用云托管注入的 OpenID
+        String openid = request.getHeader(WX_OPENID_HEADER);
+        if (openid != null && !openid.isEmpty()) {
+            User user = authService.loginByWx(openid);
+            request.setAttribute(USER_ID_ATTR, user.getId());
+            return true;
+        }
+
+        // 降级到游客模式
         String guestToken = request.getHeader(GUEST_TOKEN_HEADER);
         User user = authService.ensureGuest(guestToken);
         request.setAttribute(USER_ID_ATTR, user.getId());
