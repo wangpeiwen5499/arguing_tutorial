@@ -78,6 +78,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import VoiceRecorder from '@/components/VoiceRecorder.vue'
 import AudioPlayer from '@/components/AudioPlayer.vue'
 import { startSession, chat, requestHint, endSession } from '@/api/session'
+import { uploadToCloud } from '@/api/upload'
 import { useGuest } from '@/composables/useGuest'
 
 // ===== 状态 =====
@@ -207,7 +208,12 @@ async function onRecordComplete(filePath: string) {
   subtitle.value = ''
 
   try {
-    const res = await chat(sessionId.value, filePath) as any
+    // 1. 上传录音到云托管内置 COS
+    const cloudPath = `audio/${sessionId.value}/${Date.now()}.mp3`
+    await uploadToCloud(filePath, cloudPath)
+
+    // 2. 发送 chat 请求（传 cloudPath）
+    const res = await chat(sessionId.value, cloudPath) as any
 
     isThinking.value = false
 

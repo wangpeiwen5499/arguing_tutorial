@@ -17,9 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -137,18 +135,17 @@ public class SessionService {
      * 发送语音对练。
      * 1. 校验 Session 存在且 ACTIVE
      * 2. 校验 currentRound < totalRounds
-     * 3. 保存音频文件到临时路径
-     * 4. ASR 语音转文字
-     * 5. 敏感词过滤
-     * 6. 构建角色扮演 Prompt
-     * 7. 调用 AI 获取回复
-     * 8. 解析 AI 回复 JSON（reply + emotion）
-     * 9. 审核 AI 输出安全性
-     * 10. TTS 生成语音
-     * 11. 保存 Round，返回 ChatResponse
+     * 3. 从 COS 下载音频 → ASR 语音转文字
+     * 4. 敏感词过滤
+     * 5. 构建角色扮演 Prompt
+     * 6. 调用 AI 获取回复
+     * 7. 解析 AI 回复 JSON（reply + emotion）
+     * 8. 审核 AI 输出安全性
+     * 9. TTS 生成语音
+     * 10. 保存 Round，返回 ChatResponse
      */
     @Transactional
-    public ChatResponse chat(Long userId, Long sessionId, MultipartFile audioFile) {
+    public ChatResponse chat(Long userId, Long sessionId, String audioCloudPath) {
         // 1. 校验 Session 存在且 ACTIVE
         Session session = findActiveSession(sessionId, userId);
 
@@ -157,13 +154,18 @@ public class SessionService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "对练已结束，不能再发送消息");
         }
 
-        // 3. ASR 语音转文字（必须在 transferTo 之前，否则临时文件被删除）
-        String userText = speechService.recognize(audioFile);
-
-        // 4. 保存音频文件
+        // 3. 从 COS 下载音频 → ASR 语音转文字
+        String userText = null;
         String audioUrl = null;
-        if (audioFile != null && !audioFile.isEmpty()) {
-            audioUrl = saveAudioFile(sessionId, session.getCurrentRound() + 1, audioFile);
+        if (audioCloudPath != null && !audioCloudPath.isEmpty()) {
+            try {
+                byte[] audioData = ossService.download(audioCloudPath);
+                userText = speechService.recognize(audioData, audioCloudPath);
+                audioUrl = ossService.getUrl(audioCloudPath);
+                log.debug("音频从 COS 下载成功, key={}, size={}", audioCloudPath, audioData.length);
+            } catch (Exception e) {
+                log.warn("从 COS 下载音频失败，跳过 ASR: {}", e.getMessage());
+            }
         }
         if (userText == null || userText.isEmpty()) {
             userText = "（语音输入）";
@@ -347,25 +349,4 @@ public class SessionService {
                 .contains(emotion.toLowerCase());
     }
 
-    /**
-     * 保存音频文件到 OSS。
-     */
-    private String saveAudioFile(Long sessionId, int roundNumber, MultipartFile audioFile) {
-        try {
-            String originalFilename = audioFile.getOriginalFilename();
-            String extension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
-            }
-            String filename = "round_" + roundNumber + "_" + UUID.randomUUID().toString().substring(0, 8) + extension;
-            String ossKey = "audio/" + sessionId + "/" + filename;
-
-            String url = ossService.upload(ossKey, audioFile.getInputStream(), audioFile.getSize());
-            log.debug("音频文件已上传: {}", url);
-            return url;
-        } catch (IOException e) {
-            log.warn("上传音频文件失败，sessionId={}, round={}", sessionId, roundNumber, e);
-            return null;
-        }
-    }
 }

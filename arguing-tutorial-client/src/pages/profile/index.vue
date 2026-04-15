@@ -105,18 +105,24 @@ const isGuest = computed(() => {
 })
 
 function onLogin() {
-  // 微信小程序登录
-  uni.login({
-    provider: 'weixin',
-    success: (loginRes) => {
-      console.log('微信登录成功:', loginRes.code)
-      // TODO: 将 code 发送到后端换取用户信息
-    },
-    fail: (err) => {
-      console.error('微信登录失败:', err)
-      uni.showToast({ title: '登录失败，请重试', icon: 'none' })
-    }
-  })
+  // #ifdef MP-WEIXIN
+  handleWxLogin()
+  // #endif
+  // #ifndef MP-WEIXIN
+  uni.showToast({ title: '请在微信小程序中使用', icon: 'none' })
+  // #endif
+}
+
+async function handleWxLogin() {
+  try {
+    await userStore.handleWxLogin()
+    uni.showToast({ title: '登录成功', icon: 'success' })
+    // 刷新历史记录
+    await userStore.fetchHistory()
+  } catch (e) {
+    console.error('微信登录失败:', e)
+    uni.showToast({ title: '登录失败，请重试', icon: 'none' })
+  }
 }
 
 function onHistoryClick(item: any) {

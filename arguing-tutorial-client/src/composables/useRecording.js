@@ -2,7 +2,7 @@ import { ref } from 'vue'
 
 /**
  * 封装微信小程序录音管理器
- * - start(): 开始录音（AAC, 16000Hz, 最大60s自动截止）
+ * - start(): 开始录音（MP3, 16000Hz, 最大60s自动截止）
  * - stop(): 停止录音，返回 { filePath, duration }，duration < 1s 返回 null
  * - cancel(): 取消录音
  */
@@ -72,7 +72,7 @@ export function useRecording() {
     rejectStop = reject
 
     recorderManager.start({
-      format: 'aac',
+      format: 'mp3',
       sampleRate: 16000,
       numberOfChannels: 1,
       encodeBitRate: 96000,

@@ -76,14 +76,19 @@ function onCustomScene() {
 onMounted(async () => {
   loading.value = true
   try {
-    await ensureToken()
+    // 场景列表不需要认证，直接加载
     const res = await getSceneList()
+    console.log('场景列表响应:', JSON.stringify(res))
     scenes.value = Array.isArray(res) ? res : (res.data || [])
+    console.log('解析后场景数量:', scenes.value.length)
   } catch (e) {
     console.error('加载场景列表失败:', e)
+    uni.showToast({ title: '加载失败，请检查网络', icon: 'none' })
   } finally {
     loading.value = false
   }
+  // 游客token异步获取，不阻塞场景展示
+  ensureToken().catch(e => console.error('获取游客Token失败:', e))
 })
 </script>
 

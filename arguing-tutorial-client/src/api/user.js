@@ -23,3 +23,15 @@ export function updateUserInfo(data) {
     data
   })
 }
+
+/**
+ * 微信登录（云托管模式）
+ * callContainer 自动注入 X-WX-OPENID，无需前端传 code
+ * @returns {Promise<Object>} { userId, nickname, avatarUrl, isGuest }
+ */
+export function wxLogin() {
+  return request({
+    url: '/api/auth/wx-login',
+    method: 'POST'
+  })
+}

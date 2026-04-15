@@ -206,6 +206,57 @@ public class SpeechService {
         }
     }
 
+    /**
+     * ASR 语音识别：将字节数组转为文字（用于 COS 下载的音频）。
+     *
+     * @param audioData 音频字节数组
+     * @param filenameOrPath 文件名或路径（用于判断音频格式）
+     * @return 识别出的文字
+     */
+    public String recognize(byte[] audioData, String filenameOrPath) {
+        if (audioData == null || audioData.length == 0) {
+            log.debug("音频数据为空，跳过 ASR");
+            return null;
+        }
+
+        try {
+            String token = getToken();
+            String format = detectAudioFormat(filenameOrPath);
+
+            String url = NLS_GATEWAY + "/stream/v1/asr"
+                    + "?appkey=" + aliConfig.getAppKey()
+                    + "&format=" + format
+                    + "&sample_rate=16000"
+                    + "&enable_punctuation_prediction=true"
+                    + "&enable_inverse_text_normalization=true";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+            headers.set("X-NLS-Token", token);
+
+            HttpEntity<byte[]> entity = new HttpEntity<>(audioData, headers);
+            String responseBody = restTemplate.postForObject(url, entity, String.class);
+
+            log.debug("ASR 原始响应: {}", responseBody);
+
+            JsonNode root = objectMapper.readTree(responseBody);
+            int statusCode = root.path("status").asInt();
+
+            if (statusCode == 20000000) {
+                String result = root.path("result").asText("").trim();
+                log.info("ASR 识别成功，文本: {}", result);
+                return result.isEmpty() ? null : result;
+            } else {
+                String message = root.path("message").asText("未知错误");
+                log.warn("ASR 识别失败, status={}, message={}", statusCode, message);
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("ASR 识别异常: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
     // ==================== 音素时间戳 ====================
 
     /**

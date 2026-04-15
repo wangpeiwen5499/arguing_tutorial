@@ -1,5 +1,6 @@
 package com.arguing.common;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -9,6 +10,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 @Service
+@ConditionalOnProperty(name = "redis.enabled", havingValue = "true")
 public class RateLimitService {
 
     private static final int GUEST_DAILY_LIMIT = 5;

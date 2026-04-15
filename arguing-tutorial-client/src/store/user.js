@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { getUserInfo } from '@/api/user'
+import { getUserInfo, wxLogin } from '@/api/user'
 import { request } from '@/api/index'
 
 export const useUserStore = defineStore('user', {
@@ -50,6 +50,20 @@ export const useUserStore = defineStore('user', {
         console.error('获取历史记录失败:', e)
         this.history = []
       }
+    },
+
+    async handleWxLogin() {
+      const res = await wxLogin()
+      const data = res.data || res
+      this.userInfo = {
+        nickname: data.nickname || '',
+        avatarUrl: data.avatarUrl || '',
+        isGuest: false,
+        totalSessions: data.totalSessions || 0,
+        avgScore: data.avgScore || 0,
+        bestScore: data.bestScore || 0
+      }
+      this.isLoggedIn = true
     },
 
     logout() {

@@ -12,9 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -65,16 +63,19 @@ public class SessionController {
     /**
      * 发送语音，返回 AI 回复。
      * POST /api/sessions/{id}/chat
-     * Multipart: audio file
+     * Body: { "audioCloudPath": "audio/xxx.mp3" }
      */
     @PostMapping("/{id}/chat")
     public ResponseEntity<Map<String, Object>> chat(
             @PathVariable("id") Long sessionId,
-            @RequestParam(value = "audio", required = false) MultipartFile audio,
+            @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
         Long userId = extractUserId(request);
 
-        ChatResponse response = sessionService.chat(userId, sessionId, audio);
+        String audioCloudPath = body.get("audioCloudPath") != null
+                ? body.get("audioCloudPath").toString() : null;
+
+        ChatResponse response = sessionService.chat(userId, sessionId, audioCloudPath);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("code", 200);

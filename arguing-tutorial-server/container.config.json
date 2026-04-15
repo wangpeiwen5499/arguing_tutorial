@@ -3,5 +3,5 @@
   "minNum": 0,
   "maxNum": 5,
   "cpu": 0.5,
-  "mem": 512
+  "mem": 1024
 }

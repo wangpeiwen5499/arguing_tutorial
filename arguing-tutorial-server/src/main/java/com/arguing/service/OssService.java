@@ -10,6 +10,7 @@ import com.qcloud.cos.COSClient;
 import com.qcloud.cos.ClientConfig;
 import com.qcloud.cos.auth.BasicCOSCredentials;
 import com.qcloud.cos.auth.COSCredentials;
+import com.qcloud.cos.model.GetObjectRequest;
 import com.qcloud.cos.model.ObjectMetadata;
 import com.qcloud.cos.model.PutObjectRequest;
 import com.qcloud.cos.region.Region;
@@ -18,6 +19,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 
 /**
@@ -83,6 +86,49 @@ public class OssService {
                 cosClient.shutdown();
             }
         }
+    }
+
+    /**
+     * 从 COS 下载文件，返回字节数组。
+     *
+     * @param key 对象键（如 "audio/1/round_1_xxx.mp3"）
+     * @return 文件内容字节数组
+     */
+    public byte[] download(String key) {
+        COSClient cosClient = null;
+        try {
+            COSCredentials cred = new BasicCOSCredentials(
+                    storageConfig.getSecretId(),
+                    storageConfig.getSecretKey());
+            ClientConfig clientConfig = new ClientConfig(new Region(storageConfig.getRegion()));
+            cosClient = new COSClient(cred, clientConfig);
+
+            File tempFile = File.createTempFile("cos_download_", ".tmp");
+            try {
+                cosClient.getObject(new GetObjectRequest(storageConfig.getBucket(), key), tempFile);
+                return java.nio.file.Files.readAllBytes(tempFile.toPath());
+            } finally {
+                tempFile.delete();
+            }
+        } catch (Exception e) {
+            log.error("从 COS 下载文件失败: key={}, error={}", key, e.getMessage(), e);
+            throw new RuntimeException("下载文件失败", e);
+        } finally {
+            if (cosClient != null) {
+                cosClient.shutdown();
+            }
+        }
+    }
+
+    /**
+     * 拼接 COS 文件的 HTTP URL。
+     *
+     * @param key 对象键
+     * @return 可访问的 HTTP URL
+     */
+    public String getUrl(String key) {
+        return String.format("https://%s.cos.%s.myqcloud.com/%s",
+                storageConfig.getBucket(), storageConfig.getRegion(), key);
     }
 
     // ==================== 方案B：阿里云 OSS（暂未使用） ====================

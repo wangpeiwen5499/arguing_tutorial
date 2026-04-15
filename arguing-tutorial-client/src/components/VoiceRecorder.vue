@@ -111,7 +111,7 @@ function startRecording() {
   startTime = Date.now()
   recording.value = true
   manager.start({
-    format: 'aac',
+    format: 'mp3',
     sampleRate: 16000,
     numberOfChannels: 1,
     encodeBitRate: 96000,
