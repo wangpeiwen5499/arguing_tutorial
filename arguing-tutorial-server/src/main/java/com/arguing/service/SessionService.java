@@ -221,23 +221,47 @@ public class SessionService {
         // 7. 解析 AI 回复 JSON（reply + emotion）
         String aiText;
         String aiEmotion = "neutral";
+
+        // 清理 markdown 代码块标记
+        String cleaned = aiRawResponse.trim();
+        if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replaceAll("^```(?:json)?\\s*", "").replaceAll("\\s*```$", "").trim();
+        }
+
+        // 尝试整体解析为 JSON
+        JsonNode jsonNode = null;
         try {
-            JsonNode jsonNode = objectMapper.readTree(aiRawResponse);
-            if (jsonNode.has("reply")) {
-                aiText = jsonNode.get("reply").asText();
-            } else {
-                aiText = aiRawResponse;
+            jsonNode = objectMapper.readTree(cleaned);
+        } catch (Exception e) {
+            // 整体解析失败，尝试从文本末尾提取嵌入的 JSON
+            int lastBrace = cleaned.lastIndexOf('{');
+            if (lastBrace > 0) {
+                String jsonPart = cleaned.substring(lastBrace);
+                try {
+                    jsonNode = objectMapper.readTree(jsonPart);
+                } catch (Exception e2) {
+                    log.debug("[chat] 步骤7-无法从AI回复中提取JSON");
+                }
             }
+        }
+
+        if (jsonNode != null && jsonNode.has("reply")) {
+            aiText = jsonNode.get("reply").asText();
             if (jsonNode.has("emotion")) {
                 String parsedEmotion = jsonNode.get("emotion").asText();
                 if (isValidEmotion(parsedEmotion)) {
                     aiEmotion = parsedEmotion;
                 }
             }
-        } catch (Exception e) {
-            log.debug("[chat] 步骤7-AI回复非JSON格式，直接使用原文");
-            aiText = aiRawResponse;
+        } else {
+            // 无法解析 JSON，使用原文（去掉尾部可能的残缺 JSON）
+            aiText = cleaned;
+            int lastBrace = cleaned.lastIndexOf('{');
+            if (lastBrace > 0) {
+                aiText = cleaned.substring(0, lastBrace).trim();
+            }
         }
+
         log.info("[chat] 步骤7-解析AI回复: text={}, emotion={}", truncate(aiText, 100), aiEmotion);
 
         // 8. 审核 AI 输出安全性

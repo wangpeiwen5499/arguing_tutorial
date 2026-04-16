@@ -95,6 +95,7 @@ const canRecord = ref(false)
 const hintText = ref('')
 
 const audioPlayerRef = ref<InstanceType<typeof AudioPlayer> | null>(null)
+let audioPlayTimer: ReturnType<typeof setTimeout> | null = null
 
 const { ensureToken } = useGuest()
 
@@ -139,12 +140,37 @@ onShow(() => {
 })
 
 onBeforeUnmount(() => {
+  clearAudioTimer()
   if (audioPlayerRef.value) {
     audioPlayerRef.value.stop()
   }
 })
 
 // ===== 方法 =====
+
+/** 清除音频播放超时定时器 */
+function clearAudioTimer() {
+  if (audioPlayTimer) {
+    clearTimeout(audioPlayTimer)
+    audioPlayTimer = null
+  }
+}
+
+/** 启动音频播放超时定时器（兜底，AudioPlayer 轮询正常情况下不会触发） */
+function startAudioTimer() {
+  clearAudioTimer()
+  console.log('[practice] 启动180秒兜底超时定时器')
+  // 180 秒兜底，正常情况下 AudioPlayer 轮询会在音频播放完毕时触发 ended
+  audioPlayTimer = setTimeout(() => {
+    console.warn('[practice] ★★★ 音频播放兜底超时180秒，强制恢复录音按钮 ★★★')
+    isAiSpeaking.value = false
+    if (currentRound.value >= totalRounds.value) {
+      goToReport()
+      return
+    }
+    canRecord.value = true
+  }, 180000)
+}
 
 /** 请求录音权限 */
 function requestRecordPermission() {
@@ -171,6 +197,7 @@ async function initSession() {
       sessionId.value = data.sessionId
       currentRound.value = data.currentRound || 0
       totalRounds.value = data.totalRounds || 10
+      console.log('[practice] initSession成功, sessionId=', data.sessionId, ', audioUrl=', data.audioUrl ? '有' : '无')
 
       // 显示 AI 开场白
       if (data.text) {
@@ -179,13 +206,18 @@ async function initSession() {
         if (data.audioUrl && audioPlayerRef.value) {
           isAiSpeaking.value = true
           canRecord.value = false
+          console.log('[practice] 开场白有语音, 准备播放')
           const playableUrl = await getPlayableUrl(data.audioUrl)
+          console.log('[practice] 开场白playableUrl获取完成, 长度=', playableUrl ? playableUrl.length : 0)
+          startAudioTimer()
           audioPlayerRef.value.play(playableUrl)
         } else {
           // 没有语音，直接开启录音
+          console.log('[practice] 开场白无语音, canRecord=true')
           canRecord.value = true
         }
       } else {
+        console.log('[practice] 开场白无文字, canRecord=true')
         canRecord.value = true
       }
     }
@@ -206,17 +238,21 @@ async function onRecordComplete(filePath: string) {
   canRecord.value = false
   isThinking.value = true
   subtitle.value = ''
+  console.log('[practice] onRecordComplete 开始上传')
 
   try {
     // 1. 上传录音到云托管内置 COS，获取真实 fileID
     const cloudPath = `audio/${sessionId.value}/${Date.now()}.mp3`
     const fileID = await uploadToCloud(filePath, cloudPath)
+    console.log('[practice] 上传COS完成, fileID=', fileID)
 
-    // 2. 用真实 fileID 获取临时访问链接（后端 COS 凭证无法读取 wx.cloud 上传的文件）
+    // 2. 用真实 fileID 获取临时访问链接
     const audioUrl = await getPlayableUrl(fileID)
+    console.log('[practice] getPlayableUrl完成')
 
-    // 3. 发送 chat 请求（传临时链接供后端下载，传 cloudPath 作为永久标识存数据库）
+    // 3. 发送 chat 请求
     const res = await chat(sessionId.value, audioUrl, cloudPath) as any
+    console.log('[practice] chat响应: code=', res.code, ', data.audioUrl=', res.data?.audioUrl ? '有' : '无', ', data.text=', res.data?.text ? res.data.text.substring(0, 50) : '无')
 
     isThinking.value = false
 
@@ -232,7 +268,7 @@ async function onRecordComplete(filePath: string) {
 
       // 检查是否已达到最后一轮
       if (currentRound.value >= totalRounds.value) {
-        // 会话结束
+        console.log('[practice] 已达最后一轮, 跳转报告页')
         await endSession(sessionId.value)
         goToReport()
         return
@@ -241,16 +277,22 @@ async function onRecordComplete(filePath: string) {
       // 尝试播放 AI 语音
       if (data.audioUrl && audioPlayerRef.value) {
         isAiSpeaking.value = true
+        console.log('[practice] AI回复有语音, 准备播放')
         const playableUrl = await getPlayableUrl(data.audioUrl)
+        console.log('[practice] AI回复playableUrl获取完成, 长度=', playableUrl ? playableUrl.length : 0)
+        startAudioTimer()
         audioPlayerRef.value.play(playableUrl)
       } else {
         // 没有语音，直接开启下一轮录音
+        console.log('[practice] AI回复无语音, canRecord=true')
         canRecord.value = true
       }
+    } else {
+      console.warn('[practice] chat响应非200, res=', JSON.stringify(res).substring(0, 200))
     }
   } catch (err) {
     isThinking.value = false
-    console.error('发送语音失败:', err)
+    console.error('[practice] 发送语音失败:', err)
     uni.showToast({ title: '发送失败，请重试', icon: 'none' })
     canRecord.value = true
   }
@@ -258,20 +300,25 @@ async function onRecordComplete(filePath: string) {
 
 /** 音频播放结束 */
 function onAudioEnded() {
+  console.log('[practice] ★★★ onAudioEnded 触发 ★★★, canRecord=', canRecord.value, ', round=', currentRound.value, '/', totalRounds.value)
+  clearAudioTimer()
   isAiSpeaking.value = false
 
   // 检查是否已达到最后一轮
   if (currentRound.value >= totalRounds.value) {
+    console.log('[practice] onAudioEnded: 已达最后一轮, 跳转报告页')
     goToReport()
     return
   }
 
   canRecord.value = true
+  console.log('[practice] onAudioEnded: canRecord 设为 true')
 }
 
 /** 音频播放错误 */
 function onAudioError(err: any) {
-  console.error('音频播放错误:', err)
+  console.error('[practice] ★★★ onAudioError 触发 ★★★, err=', JSON.stringify(err))
+  clearAudioTimer()
   isAiSpeaking.value = false
   // 降级为纯文字模式，直接开启录音
   uni.showToast({ title: '语音播放失败', icon: 'none' })
