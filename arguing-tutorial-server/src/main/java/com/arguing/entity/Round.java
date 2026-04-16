@@ -25,7 +25,7 @@ public class Round {
     @Column(name = "round_number", nullable = false)
     private Integer roundNumber;
 
-    @Column(name = "user_audio_url", length = 500)
+    @Column(name = "user_audio_url", length = 2048)
     private String userAudioUrl;
 
     @Column(name = "user_text", columnDefinition = "TEXT")
@@ -34,7 +34,7 @@ public class Round {
     @Column(name = "ai_text", columnDefinition = "TEXT")
     private String aiText;
 
-    @Column(name = "ai_audio_url", length = 500)
+    @Column(name = "ai_audio_url", length = 2048)
     private String aiAudioUrl;
 
     @Column(name = "ai_emotion", length = 20)

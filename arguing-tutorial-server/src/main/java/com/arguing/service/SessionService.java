@@ -262,13 +262,13 @@ public class SessionService {
         userRound.setCreatedAt(LocalDateTime.now());
         roundRepository.save(userRound);
 
-        // 保存 AI 轮次 Round 记录
+        // 保存 AI 轮次 Round 记录（存 COS key，不存签名 URL）
         Round aiRound = new Round();
         aiRound.setSessionId(session.getId());
         aiRound.setRoundNumber(userRoundNumber);
         aiRound.setAiText(aiText);
         aiRound.setAiEmotion(aiEmotion);
-        aiRound.setAiAudioUrl(aiAudioKey != null ? ossService.getUrl(aiAudioKey) : null);
+        aiRound.setAiAudioUrl(aiAudioKey);
         aiRound.setCreatedAt(LocalDateTime.now());
         roundRepository.save(aiRound);
 
