@@ -159,6 +159,10 @@ public class SpeechService {
             return null;
         }
 
+        log.info("[TTS] 开始合成, 文本长度={}, 文本: {}", text.length(),
+                text.length() > 80 ? text.substring(0, 80) + "..." : text);
+        long start = System.currentTimeMillis();
+
         try {
             String token = getToken();
             String url = NLS_GATEWAY + "/stream/v1/tts";
@@ -178,10 +182,12 @@ public class SpeechService {
 
             HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(body), headers);
 
+            long tNls = System.currentTimeMillis();
             ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.POST, entity, byte[].class);
+            log.info("[TTS] 阿里云NLS响应, 耗时={}ms, status={}", System.currentTimeMillis() - tNls, response.getStatusCode());
 
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null || response.getBody().length == 0) {
-                log.warn("TTS 合成返回空响应");
+                log.warn("[TTS] 合成返回空响应");
                 return null;
             }
 
@@ -189,19 +195,20 @@ public class SpeechService {
             MediaType contentType = response.getHeaders().getContentType();
             if (contentType != null && contentType.includes(MediaType.APPLICATION_JSON)) {
                 String errorJson = new String(response.getBody(), StandardCharsets.UTF_8);
-                log.warn("TTS 合成失败: {}", errorJson);
+                log.warn("[TTS] 合成失败: {}", errorJson);
                 return null;
             }
 
-            // 上传音频文件到 OSS
+            // 上传音频文件到 OSS，返回 COS key
             String filename = "tts_" + System.currentTimeMillis() + ".wav";
             String ossKey = "tts/" + filename;
-            String ossUrl = ossService.upload(ossKey, response.getBody());
+            ossService.upload(ossKey, response.getBody());
 
-            log.info("TTS 合成成功: {} ({} 字节)", ossUrl, response.getBody().length);
-            return ossUrl;
+            log.info("[TTS] 合成+上传完成, key={}, 音频大小={}字节, 总耗时={}ms",
+                    ossKey, response.getBody().length, System.currentTimeMillis() - start);
+            return ossKey;
         } catch (Exception e) {
-            log.error("TTS 合成异常: {}", e.getMessage(), e);
+            log.error("[TTS] 合成异常, 耗时={}ms: {}", System.currentTimeMillis() - start, e.getMessage(), e);
             return null;
         }
     }
@@ -215,9 +222,13 @@ public class SpeechService {
      */
     public String recognize(byte[] audioData, String filenameOrPath) {
         if (audioData == null || audioData.length == 0) {
-            log.debug("音频数据为空，跳过 ASR");
+            log.debug("[ASR] 音频数据为空，跳过");
             return null;
         }
+
+        log.info("[ASR] 开始识别, 文件={}, 数据大小={}字节, 格式={}",
+                filenameOrPath, audioData.length, detectAudioFormat(filenameOrPath));
+        long start = System.currentTimeMillis();
 
         try {
             String token = getToken();
@@ -237,22 +248,23 @@ public class SpeechService {
             HttpEntity<byte[]> entity = new HttpEntity<>(audioData, headers);
             String responseBody = restTemplate.postForObject(url, entity, String.class);
 
-            log.debug("ASR 原始响应: {}", responseBody);
+            log.debug("[ASR] 原始响应: {}", responseBody);
 
             JsonNode root = objectMapper.readTree(responseBody);
             int statusCode = root.path("status").asInt();
 
             if (statusCode == 20000000) {
                 String result = root.path("result").asText("").trim();
-                log.info("ASR 识别成功，文本: {}", result);
+                log.info("[ASR] 识别成功, 耗时={}ms, 文本: {}", System.currentTimeMillis() - start, result);
                 return result.isEmpty() ? null : result;
             } else {
                 String message = root.path("message").asText("未知错误");
-                log.warn("ASR 识别失败, status={}, message={}", statusCode, message);
+                log.warn("[ASR] 识别失败, status={}, message={}, 耗时={}ms",
+                        statusCode, message, System.currentTimeMillis() - start);
                 return null;
             }
         } catch (Exception e) {
-            log.error("ASR 识别异常: {}", e.getMessage(), e);
+            log.error("[ASR] 识别异常, 耗时={}ms: {}", System.currentTimeMillis() - start, e.getMessage(), e);
             return null;
         }
     }

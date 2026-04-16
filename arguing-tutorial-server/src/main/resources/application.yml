@@ -50,11 +50,10 @@ ali:
   access-key-secret: ${ALI_ACCESS_KEY_SECRET:your-access-key-secret}
   app-key: ${ALI_APP_KEY:your-app-key}
 
-# 方案A：微信云托管内置存储（腾讯云 COS）
+# 微信云托管内置存储（腾讯云 COS）
+# 临时密钥由 WxCloudCosCredentialsProvider 自动获取，无需配置 secret-id/secret-key
 storage:
   cos:
-    secret-id: ${COS_SECRET_ID:}
-    secret-key: ${COS_SECRET_KEY:}
     region: ${COS_REGION:ap-shanghai}
     bucket: ${COS_BUCKET:7072-prod-3g0nnk2k58e9785d-1421024449}
 

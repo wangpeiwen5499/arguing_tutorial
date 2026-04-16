@@ -63,7 +63,8 @@ public class SessionController {
     /**
      * 发送语音，返回 AI 回复。
      * POST /api/sessions/{id}/chat
-     * Body: { "audioCloudPath": "audio/xxx.mp3" }
+     * Body: { "audioUrl": "https://...", "audioKey": "audio/xxx.mp3" }
+     *       或兼容旧模式 { "audioCloudPath": "audio/xxx.mp3" }
      */
     @PostMapping("/{id}/chat")
     public ResponseEntity<Map<String, Object>> chat(
@@ -72,10 +73,15 @@ public class SessionController {
             HttpServletRequest request) {
         Long userId = extractUserId(request);
 
-        String audioCloudPath = body.get("audioCloudPath") != null
-                ? body.get("audioCloudPath").toString() : null;
+        String audioUrl = body.get("audioUrl") != null
+                ? body.get("audioUrl").toString()
+                : (body.get("audioCloudPath") != null ? body.get("audioCloudPath").toString() : null);
 
-        ChatResponse response = sessionService.chat(userId, sessionId, audioCloudPath);
+        String audioKey = body.get("audioKey") != null
+                ? body.get("audioKey").toString()
+                : (body.get("audioCloudPath") != null ? body.get("audioCloudPath").toString() : null);
+
+        ChatResponse response = sessionService.chat(userId, sessionId, audioUrl, audioKey);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("code", 200);

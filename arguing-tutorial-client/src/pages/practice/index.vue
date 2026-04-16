@@ -77,8 +77,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import VoiceRecorder from '@/components/VoiceRecorder.vue'
 import AudioPlayer from '@/components/AudioPlayer.vue'
-import { startSession, chat, requestHint, endSession } from '@/api/session'
-import { uploadToCloud } from '@/api/upload'
+import { startSession, chat, requestHint, endSession, uploadToCloud, getPlayableUrl } from '@/api/session'
 import { useGuest } from '@/composables/useGuest'
 
 // ===== 状态 =====
@@ -180,7 +179,8 @@ async function initSession() {
         if (data.audioUrl && audioPlayerRef.value) {
           isAiSpeaking.value = true
           canRecord.value = false
-          audioPlayerRef.value.play(data.audioUrl)
+          const playableUrl = await getPlayableUrl(data.audioUrl)
+          audioPlayerRef.value.play(playableUrl)
         } else {
           // 没有语音，直接开启录音
           canRecord.value = true
@@ -208,12 +208,15 @@ async function onRecordComplete(filePath: string) {
   subtitle.value = ''
 
   try {
-    // 1. 上传录音到云托管内置 COS
+    // 1. 上传录音到云托管内置 COS，获取真实 fileID
     const cloudPath = `audio/${sessionId.value}/${Date.now()}.mp3`
-    await uploadToCloud(filePath, cloudPath)
+    const fileID = await uploadToCloud(filePath, cloudPath)
 
-    // 2. 发送 chat 请求（传 cloudPath）
-    const res = await chat(sessionId.value, cloudPath) as any
+    // 2. 用真实 fileID 获取临时访问链接（后端 COS 凭证无法读取 wx.cloud 上传的文件）
+    const audioUrl = await getPlayableUrl(fileID)
+
+    // 3. 发送 chat 请求（传临时链接供后端下载，传 cloudPath 作为永久标识存数据库）
+    const res = await chat(sessionId.value, audioUrl, cloudPath) as any
 
     isThinking.value = false
 
@@ -238,7 +241,8 @@ async function onRecordComplete(filePath: string) {
       // 尝试播放 AI 语音
       if (data.audioUrl && audioPlayerRef.value) {
         isAiSpeaking.value = true
-        audioPlayerRef.value.play(data.audioUrl)
+        const playableUrl = await getPlayableUrl(data.audioUrl)
+        audioPlayerRef.value.play(playableUrl)
       } else {
         // 没有语音，直接开启下一轮录音
         canRecord.value = true

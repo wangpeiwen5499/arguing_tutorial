@@ -69,11 +69,18 @@ public class SceneService {
      * 4. 保存并返回 Scene
      */
     public Scene createCustomScene(String name, String description, String opponentDescription) {
+        log.info("[createCustomScene] 开始创建, name={}, opponent={}", name, opponentDescription);
+
         // 1. 调用 LLM 生成场景设定
+        long t1 = System.currentTimeMillis();
         SceneAiResult aiResult = callAiForSceneGeneration(name, description, opponentDescription);
+        log.info("[createCustomScene] 步骤1-AI生成完成, 耗时={}ms, personality={}, difficulty={}, openingLine={}",
+                System.currentTimeMillis() - t1, aiResult.personality(), aiResult.difficulty(),
+                aiResult.openingLine().length() > 60 ? aiResult.openingLine().substring(0, 60) + "..." : aiResult.openingLine());
 
         // 2. 关键词匹配 avatar_config
         String avatarConfig = matchAvatarConfig(opponentDescription);
+        log.info("[createCustomScene] 步骤2-匹配avatar: {}", avatarConfig);
 
         // 3. 构建 Scene 实体
         Scene scene = new Scene();
@@ -81,8 +88,8 @@ public class SceneService {
         scene.setDescription(description);
         scene.setCategory("custom");
         scene.setDifficulty(aiResult.difficulty);
-        scene.setPersonality(aiResult.personality);
-        scene.setOpeningLine(aiResult.openingLine);
+        scene.setPersonality(aiResult.personality());
+        scene.setOpeningLine(aiResult.openingLine());
         scene.setEvaluationCriteria(null); // 使用默认权重
         scene.setBackgroundConfig("{\"type\":\"custom\",\"bgColor\":\"#1a1a2e\"}");
         scene.setAvatarConfig(avatarConfig);
@@ -90,7 +97,9 @@ public class SceneService {
         scene.setUpdatedAt(LocalDateTime.now());
 
         // 4. 保存并返回
-        return sceneRepository.save(scene);
+        scene = sceneRepository.save(scene);
+        log.info("[createCustomScene] 场景创建完成, sceneId={}", scene.getId());
+        return scene;
     }
 
     /**

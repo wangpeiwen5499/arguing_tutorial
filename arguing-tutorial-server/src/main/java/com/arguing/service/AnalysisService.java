@@ -83,11 +83,14 @@ public class AnalysisService {
      */
     @Transactional
     public Report analyze(Session session) {
+        log.info("[analyze] 开始分析, sessionId={}, userId={}", session.getId(), session.getUserId());
+
         // 1. 获取场景信息和所有轮次
         Scene scene = sceneRepository.findById(session.getSceneId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "场景不存在"));
 
         List<Round> rounds = roundRepository.findBySessionIdOrderByRoundNumberAsc(session.getId());
+        log.info("[analyze] 步骤1-加载数据, 场景={}, 轮次数={}", scene.getName(), rounds.size());
 
         if (rounds.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "会话没有对话记录，无法分析");
@@ -97,8 +100,11 @@ public class AnalysisService {
         List<Map<String, String>> messages = analysisPromptBuilder.build(session, scene, rounds);
 
         // 3. 调用 AI 获取分析结果
+        long t3 = System.currentTimeMillis();
         String aiResponse = aiService.chat(messages);
-        log.debug("AI 分析结果原始响应: {}", aiResponse);
+        log.info("[analyze] 步骤2-AI分析完成, 耗时={}ms, 响应长度={}",
+                System.currentTimeMillis() - t3, aiResponse != null ? aiResponse.length() : 0);
+        log.debug("[analyze] AI 原始响应: {}", aiResponse);
 
         // 4. 解析 JSON 获取各维度分数和评语
         AnalysisResult result = parseAnalysisResult(aiResponse);
@@ -117,8 +123,9 @@ public class AnalysisService {
         // 7. 限制在 0-100 范围内
         totalScore = Math.max(0, Math.min(100, totalScore));
 
-        log.info("会话 {} 分析完成: 总分={}, 加权分={}, 提示扣分={}",
-                session.getId(), totalScore, Math.round(rawScore), hintPenalty);
+        log.info("[analyze] 步骤3-评分计算: 逻辑={}, 情绪={}, 说服={}, 策略={}, 清晰={}, 加权分={}, 提示扣分={}, 最终总分={}",
+                result.logicScore, result.emotionScore, result.persuasionScore,
+                result.strategyScore, result.clarityScore, Math.round(rawScore), hintPenalty, totalScore);
 
         // 8. 保存 Report
         Report report = reportRepository.findBySessionId(session.getId())
@@ -137,7 +144,7 @@ public class AnalysisService {
             report.setImprovements(objectMapper.writeValueAsString(result.improvements));
             report.setRoundReviews(objectMapper.writeValueAsString(result.roundReviews));
         } catch (Exception e) {
-            log.warn("序列化评语失败", e);
+            log.warn("[analyze] 序列化评语失败", e);
             report.setStrengths("[]");
             report.setImprovements("[]");
             report.setRoundReviews("[]");
@@ -146,7 +153,8 @@ public class AnalysisService {
         report.setCreatedAt(LocalDateTime.now());
         report = reportRepository.save(report);
 
-        log.info("复盘报告已保存, reportId={}, sessionId={}", report.getId(), session.getId());
+        log.info("[analyze] 分析完成并保存, reportId={}, sessionId={}, totalScore={}",
+                report.getId(), session.getId(), totalScore);
         return report;
     }
 

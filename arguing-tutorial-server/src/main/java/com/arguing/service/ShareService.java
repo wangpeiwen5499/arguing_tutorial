@@ -81,8 +81,9 @@ public class ShareService {
                 .orElse(null);
         String sceneName = scene != null ? scene.getName() : "未知场景";
 
-        // 2. 渲染卡片图片
-        String imageUrl = renderCardImage(report, sceneName);
+        // 2. 渲染卡片图片（返回 COS key）
+        String imageKey = renderCardImage(report, sceneName);
+        String imageUrl = imageKey != null ? ossService.getUrl(imageKey) : null;
 
         // 3. 更新 Report.shareCardUrl
         report.setShareCardUrl(imageUrl);
@@ -189,11 +190,11 @@ public class ShareService {
             byte[] imageBytes = baos.toByteArray();
 
             String ossKey = "share-cards/" + fileName;
-            String imageUrl = ossService.upload(ossKey, imageBytes);
+            ossService.upload(ossKey, imageBytes);
 
-            log.debug("分享卡片图片已上传: {}", imageUrl);
+            log.debug("分享卡片图片已上传: key={}", ossKey);
 
-            return imageUrl;
+            return ossKey;
 
         } catch (Exception e) {
             log.error("生成分享卡片图片失败", e);

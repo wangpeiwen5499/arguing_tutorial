@@ -21,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
 public class SessionService {
@@ -89,6 +88,8 @@ public class SessionService {
      */
     @Transactional
     public SessionStartResult startSession(Long userId, Long sceneId) {
+        log.info("[startSession] 开始创建会话, userId={}, sceneId={}", userId, sceneId);
+
         // 1. 校验场景存在
         Scene scene = sceneRepository.findById(sceneId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "场景不存在"));
@@ -118,7 +119,8 @@ public class SessionService {
         round0.setCreatedAt(LocalDateTime.now());
         roundRepository.save(round0);
 
-        log.info("用户 {} 开始会话 {}，场景 {}", userId, session.getId(), sceneId);
+        log.info("[startSession] 会话创建完成, sessionId={}, 场景={}, 开场白={}",
+                session.getId(), scene.getName(), truncate(openingLine, 80));
 
         // 4. 返回 SessionStartResult
         ChatResponse response = new ChatResponse();
@@ -145,34 +147,49 @@ public class SessionService {
      * 10. 保存 Round，返回 ChatResponse
      */
     @Transactional
-    public ChatResponse chat(Long userId, Long sessionId, String audioCloudPath) {
+    public ChatResponse chat(Long userId, Long sessionId, String audioUrl, String audioKey) {
+        log.info("[chat] 开始处理 会话={}, 用户={}, audioKey={}", sessionId, userId, audioKey);
+
         // 1. 校验 Session 存在且 ACTIVE
         Session session = findActiveSession(sessionId, userId);
+        log.info("[chat] 步骤1-校验Session通过, 当前轮次={}/{}", session.getCurrentRound(), session.getTotalRounds());
 
         // 2. 校验轮次
         if (session.getCurrentRound() >= session.getTotalRounds()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "对练已结束，不能再发送消息");
         }
 
-        // 3. 从 COS 下载音频 → ASR 语音转文字
+        // 3. 下载音频 → ASR 语音转文字
+        // audioUrl: 临时链接，仅用于本次下载
+        // audioKey: COS key 永久标识，存入数据库
         String userText = null;
-        String audioUrl = null;
-        if (audioCloudPath != null && !audioCloudPath.isEmpty()) {
+        if (audioUrl != null && !audioUrl.isEmpty()) {
+            long t3 = System.currentTimeMillis();
             try {
-                byte[] audioData = ossService.download(audioCloudPath);
-                userText = speechService.recognize(audioData, audioCloudPath);
-                audioUrl = ossService.getUrl(audioCloudPath);
-                log.debug("音频从 COS 下载成功, key={}, size={}", audioCloudPath, audioData.length);
+                byte[] audioData;
+                if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
+                    audioData = ossService.downloadFromUrl(audioUrl);
+                } else {
+                    audioData = ossService.download(audioUrl);
+                }
+                log.info("[chat] 步骤3a-下载音频完成, size={}, 耗时={}ms",
+                        audioData.length, System.currentTimeMillis() - t3);
+
+                long t3b = System.currentTimeMillis();
+                userText = speechService.recognize(audioData, audioUrl);
+                log.info("[chat] 步骤3b-ASR识别完成, 结果={}, 耗时={}ms",
+                        userText != null ? truncate(userText, 100) : null, System.currentTimeMillis() - t3b);
             } catch (Exception e) {
-                log.warn("从 COS 下载音频失败，跳过 ASR: {}", e.getMessage());
+                log.warn("[chat] 步骤3-音频处理失败, 跳过ASR: {}", e.getMessage());
             }
         }
         if (userText == null || userText.isEmpty()) {
             userText = "（语音输入）";
         }
 
-        // 5. 敏感词过滤
+        // 4. 敏感词过滤
         userText = contentSafetyService.filter(userText);
+        log.info("[chat] 步骤4-敏感词过滤后: {}", truncate(userText, 100));
 
         // 获取场景信息用于构建 Prompt
         Scene scene = sceneRepository.findById(session.getSceneId())
@@ -183,8 +200,10 @@ public class SessionService {
         List<Round> historyRounds = roundRepository.findBySessionIdOrderByRoundNumberAsc(session.getId());
 
         int userRoundNumber = session.getCurrentRound() + 1;
+        log.info("[chat] 步骤5-构建Prompt, 场景={}, 性格={}, 历史轮次数={}, 目标轮次={}",
+                scene.getName(), personality, historyRounds.size(), userRoundNumber);
 
-        // 6. 构建角色扮演 Prompt
+        // 5. 构建角色扮演 Prompt
         List<Map<String, String>> messages = rolePlayPromptBuilder.build(
                 personality,
                 session.getTotalRounds(),
@@ -193,10 +212,13 @@ public class SessionService {
                 userText
         );
 
-        // 7. 调用 AI 获取回复
+        // 6. 调用 AI 获取回复
+        long t6 = System.currentTimeMillis();
         String aiRawResponse = aiService.chat(messages);
+        log.info("[chat] 步骤6-AI回复完成, 耗时={}ms, 原始回复={}",
+                System.currentTimeMillis() - t6, truncate(aiRawResponse, 200));
 
-        // 8. 解析 AI 回复 JSON（reply + emotion）
+        // 7. 解析 AI 回复 JSON（reply + emotion）
         String aiText;
         String aiEmotion = "neutral";
         try {
@@ -213,26 +235,30 @@ public class SessionService {
                 }
             }
         } catch (Exception e) {
-            // JSON 解析失败，直接使用原始回复
-            log.debug("AI 回复非 JSON 格式，直接使用原文");
+            log.debug("[chat] 步骤7-AI回复非JSON格式，直接使用原文");
             aiText = aiRawResponse;
         }
+        log.info("[chat] 步骤7-解析AI回复: text={}, emotion={}", truncate(aiText, 100), aiEmotion);
 
-        // 9. 审核 AI 输出安全性
+        // 8. 审核 AI 输出安全性
         if (!contentSafetyService.audit(aiText)) {
+            log.warn("[chat] 步骤8-AI输出未通过安全审核，已过滤");
             aiText = "（内容已被系统过滤）";
             aiEmotion = "neutral";
         }
 
-        // 10. TTS 生成语音
-        String aiAudioUrl = speechService.synthesize(aiText);
+        // 9. TTS 生成语音（返回 COS key）
+        long t9 = System.currentTimeMillis();
+        String aiAudioKey = speechService.synthesize(aiText);
+        log.info("[chat] 步骤9-TTS合成完成, audioKey={}, 耗时={}ms",
+                aiAudioKey, System.currentTimeMillis() - t9);
 
         // 保存用户轮次 Round 记录
         Round userRound = new Round();
         userRound.setSessionId(session.getId());
         userRound.setRoundNumber(userRoundNumber);
         userRound.setUserText(userText);
-        userRound.setUserAudioUrl(audioUrl);
+        userRound.setUserAudioUrl(audioKey);
         userRound.setCreatedAt(LocalDateTime.now());
         roundRepository.save(userRound);
 
@@ -242,7 +268,7 @@ public class SessionService {
         aiRound.setRoundNumber(userRoundNumber);
         aiRound.setAiText(aiText);
         aiRound.setAiEmotion(aiEmotion);
-        aiRound.setAiAudioUrl(aiAudioUrl);
+        aiRound.setAiAudioUrl(aiAudioKey != null ? ossService.getUrl(aiAudioKey) : null);
         aiRound.setCreatedAt(LocalDateTime.now());
         roundRepository.save(aiRound);
 
@@ -262,7 +288,7 @@ public class SessionService {
         // 返回 ChatResponse
         ChatResponse response = new ChatResponse();
         response.setText(aiText);
-        response.setAudioUrl(aiAudioUrl);
+        response.setAudioUrl(aiAudioKey != null ? ossService.getUrl(aiAudioKey) : null);
         response.setEmotion(aiEmotion);
         response.setExpression(null);
         response.setCurrentRound(session.getCurrentRound());
@@ -281,6 +307,7 @@ public class SessionService {
      */
     @Transactional
     public String requestHint(Long userId, Long sessionId) {
+        log.info("[requestHint] 开始, userId={}, sessionId={}", userId, sessionId);
         Session session = findActiveSession(sessionId, userId);
 
         if (session.getHintUsedCount() >= MAX_HINT_COUNT) {
@@ -294,13 +321,15 @@ public class SessionService {
         List<Round> historyRounds = roundRepository.findBySessionIdOrderByRoundNumberAsc(session.getId());
 
         // 构建策略提示 Prompt 并调用 AI
+        long t = System.currentTimeMillis();
         List<Map<String, String>> messages = hintPromptBuilder.build(historyRounds, scene.getName());
         String hint = aiService.chat(messages);
 
         session.setHintUsedCount(session.getHintUsedCount() + 1);
         sessionRepository.save(session);
 
-        log.info("会话 {} 请求提示（第 {} 次）", sessionId, session.getHintUsedCount());
+        log.info("[requestHint] 完成, 第{}次提示, 耗时={}ms, 结果={}",
+                session.getHintUsedCount(), System.currentTimeMillis() - t, truncate(hint, 100));
         return hint;
     }
 
@@ -312,13 +341,15 @@ public class SessionService {
      */
     @Transactional
     public Long endSession(Long userId, Long sessionId) {
+        log.info("[endSession] 开始, userId={}, sessionId={}", userId, sessionId);
         Session session = findActiveSession(sessionId, userId);
 
         session.setStatus(Session.SessionStatus.COMPLETED);
         session.setFinishedAt(LocalDateTime.now());
         sessionRepository.save(session);
 
-        log.info("用户 {} 手动结束会话 {}", userId, sessionId);
+        log.info("[endSession] 会话已结束, sessionId={}, 总轮次={}, 使用提示={}次",
+                sessionId, session.getCurrentRound(), session.getHintUsedCount());
         return sessionId;
     }
 
@@ -347,6 +378,15 @@ public class SessionService {
         if (emotion == null) return false;
         return List.of("angry", "sarcastic", "hesitant", "compromising", "confident", "neutral")
                 .contains(emotion.toLowerCase());
+    }
+
+    /**
+     * 截断字符串，避免日志过长。
+     */
+    private String truncate(String str, int maxLen) {
+        if (str == null) return "null";
+        if (str.length() <= maxLen) return str;
+        return str.substring(0, maxLen) + "...";
     }
 
 }
